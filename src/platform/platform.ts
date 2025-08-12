@@ -24,26 +24,62 @@ export class Result<T> {
   }
 };
 
+/** Adaptation for different sites
+ *  Includes: how to extract image information from the page, gallery metadata, and process image data.<br>
+ *  `<P>`: PageSource, which can be a document object (`Document`), URL (`string`), or JSON Data (`{key:value}`),<br>
+ *       depending on what information you want to extract from the page during the `fetchPagesSource(chapter)` stage.<br>
+ *       For example:<br>
+ *          If you collected all page URLs from the current page, set the generic `<P>` to `<string>`, then use the `yield` keyword to return each page URL. These URLs will be passed as parameters to the next stage `parseImgNodes(pageSource)`.<br>
+ *          If you requested gallery data from an API and extracted all image information from it, set the generic `<P>` to `<{url:string,...}[]>`.<br>
+ */
 export interface Matcher<P> {
-  /**
-   * step 0: in some site, the gallery is divided into chapters
+
+  /** STEP 1: Fetch chapter information
+   *  Some sites’ galleries have no concept of chapters — this step can be skipped.  
+   *  In `BaseMatcher`, `fetchChapters` has a default implementation that returns a single default chapter.  
+   *  For other sites with multi-chapter comics, you need to retrieve all chapter information from the page or API in this step.
    */
   fetchChapters(): Promise<Chapter[]>;
-  /**
-   * step 1: fetch page source
+
+  /** STEP 2: Fetch the data source for each page
+   *  This method returns an async generator. In the UI, when scrolling to the bottom of the thumbnail grid,  
+   *  the async generator's `next()` will be called, retrieving the result yielded each time.<br>
+   *  @param chapter If the site has no concept of chapters, you can ignore this parameter.  
+   *                 Otherwise, you can request the chapter's page document via `chapter.source`:
+   *                 ```ts
+   *                 const doc = await window.fetch(chapter.source)
+   *                   .then(resp => resp.text())
+   *                   .then(text => new DOMParser().parseFromString(text, "text/html"))
+   *                   .catch(Error);
+   *                 ```
+   *  @returns An async generator that yields results.  
+   *           In `PageFetcher`, the async generator's `next()` method is called lazily, reducing the load on the site.
    */
   fetchPagesSource(chapter: Chapter): AsyncGenerator<Result<P>>;
-  /**
-   * step 2: parse img nodes from page source
+
+  /** STEP 3: Parse image information
+   *  Parses image information from `pageSource`, mainly: `thumbnailSrc` (optional), `href`, `title`, and organizes them into `ImageNode[]`.  
+   *  In some sites, you can also directly get the large image URL (`originSrc`) and image dimensions.
+   *  @param pageSource Depending on the generic `<P>`, it could be a document, URL, JSON data, etc.
+   *  @returns ImageNode[]
    */
   parseImgNodes(pageSource: P, chapterID?: number): Promise<ImageNode[] | never>;
-  /**
-   * step 3: fetch origin img url from every single image node's href
+
+  /** STEP 4: Fetch the large image URL, or update image title/href
+   *  In some sites, the `parseImgNodes` step can already obtain the large image URL (`originSrc`), so you can directly return `{url: node.originSrc!}`.  
+   *  Otherwise, you need to request the page document via `node.href` in this step and parse the `originSrc` from it.
+   *  @param node ImageNode 
+   *  @returns OriginMeta
    */
   fetchOriginMeta(node: ImageNode, retry: boolean, chapterID?: number): Promise<OriginMeta>;
 
   galleryMeta(chapter: Chapter): GalleryMeta;
   title(chapter: Chapter[]): string;
+
+  /** Process image data
+   *  This step can be skipped for most sites — `BaseMatcher` already has a default implementation.  
+   *  However, some sites encrypt, scramble, or segment image data. In such cases, this step should handle decryption or restoration.
+   */
   processData(data: Uint8Array, contentType: string, node: ImageNode): Promise<[Uint8Array, string]>;
   headers(): Record<string, string>;
   appendNewChapters(url: string, old: Chapter[]): Promise<Chapter[]>;

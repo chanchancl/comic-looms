@@ -28,6 +28,12 @@ export enum FetchState {
   DONE = 3,
 }
 
+/** Image Fetcher
+ *  @field node - Contains the image information.<br>
+ *  The image fetcher retrieves the large image URL and large image data in several stages (`FetchState`).<br>
+ *  In case of an error, it will retry up to 2 times.<br>
+ *  The core method is `this.start()`.<br>
+ */
 export class IMGFetcher {
   index: number;
   node: ImageNode;
@@ -74,7 +80,6 @@ export class IMGFetcher {
     return element;
   }
 
-  // 刷新下载状态
   setDownloadState(newState: Partial<DownloadState>) {
     this.downloadState = { ...this.downloadState, ...newState };
     this.node.progress(this.downloadState);
@@ -96,7 +101,6 @@ export class IMGFetcher {
       evLog("error", `IMG-FETCHER ERROR:`, error);
       this.stage = FetchState.FAILED;
       EBUS.emit("imf-on-finished", this.index, false, this);
-      // TODO: show error on image
     } finally {
       this.lock = false;
     }

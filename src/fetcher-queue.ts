@@ -5,6 +5,17 @@ import EBUS from "./event-bus";
 import { CherryPick } from "./download/downloader";
 import { ADAPTER } from "./platform/adapt";
 
+/** Manages IMGFetcher with concurrency control for requests
+ *  `IMGFetcherQueue` extends `Array`, where each element is an `IMGFetcher`.<br>
+ *  In the UI, when the user clicks to read or flips through large images,  
+ *  the core method `do(start: number)` is called to find several unfinished `IMGFetcher` instances (based on `threads` configuration)  
+ *  and execute `IMGFetcher.start()` to download large images.<br>
+ *  Additionally:<br>
+ *  `IMGFetcherQueue` can also be controlled by `IdleLoader`.  
+ *  When the user is inactive, `IdleLoader` will control `IMGFetcherQueue` to load images gradually.<br>
+ *  `IMGFetcherQueue` can also be controlled by `Downloader`.  
+ *  When the user clicks "Download", `Downloader` will control `IMGFetcherQueue` to load all unfinished `IMGFetcher` instances.<br>
+ */
 export class IMGFetcherQueue extends Array<IMGFetcher> {
   executableQueue: number[];
   currIndex: number;
@@ -31,7 +42,7 @@ export class IMGFetcherQueue extends Array<IMGFetcher> {
 
   static newQueue() {
     const queue = new IMGFetcherQueue();
-    // avoid Array.slice or some methods trigger Array.constructor
+    // avoid Array.slice or similar methods triggering Array.constructor
     EBUS.subscribe("imf-on-finished", (index, success, imf) => queue.chapterIndex === imf.chapterIndex && queue.finishedReport(index, success, imf));
     EBUS.subscribe("ifq-do", (index, imf, oriented) => {
       if (imf.chapterIndex !== queue.chapterIndex) return;
@@ -52,11 +63,8 @@ export class IMGFetcherQueue extends Array<IMGFetcher> {
 
   constructor() {
     super();
-    //可执行队列
     this.executableQueue = [];
-    //当前的显示的大图的图片请求器所在的索引
     this.currIndex = 0;
-    //已经完成加载的
     this.debouncer = new Debouncer();
   }
 
@@ -74,18 +82,25 @@ export class IMGFetcherQueue extends Array<IMGFetcher> {
     }
   }
 
+  /** Core method
+   *  Finds unfinished `IMGFetcher` instances before or after `start` (including `start`),  
+   *  puts them into `this.executableQueue`, and then calls `IMGFetcher.start()` for all of them.
+   */
   do(start: number, oriented?: Oriented) {
     oriented = oriented || "next";
-    //边界约束
+    // check bounds
     this.currIndex = this.fixIndex(start);
     EBUS.emit("ifq-on-do", this.currIndex, this, this.downloading?.() || false);
     if (this.downloading?.()) return;
 
-    //从当前索引开始往后,放入指定数量的图片获取器,如果该图片获取器已经获取完成则向后延伸.
-    //如果最后放入的数量为0,说明已经没有可以继续执行的图片获取器,可能意味着后面所有的图片都已经加载完毕,也可能意味着中间出现了什么错误
+    // Starting from the this.currIndex, add the specified number of `IMGFetcher` instances to the queue.  
+    // If an `IMGFetcher` is already completed, extend the search further.  
+    // If no items are added, it means there are no more executable `IMGFetcher` instances —  
+    // possibly because all subsequent images are already loaded, or an error occurred in between.
     if (!this.pushInExecutableQueue(oriented)) return;
 
-    // delay 300ms to avoid too many requests, if user scroll quickly on big image, it will cause too many requests
+    // Delay 300ms to avoid too many requests.  
+    // If the user scrolls quickly through large images, it could otherwise trigger excessive requests.
     this.debouncer.addEvent("IFQ-EXECUTABLE", () => {
       console.log("IFQ-EXECUTABLE: ", this.executableQueue);
       Promise.all(this.executableQueue.splice(0, ADAPTER.conf.paginationIMGCount).map(imfIndex => this[imfIndex].start()))
@@ -96,13 +111,15 @@ export class IMGFetcherQueue extends Array<IMGFetcher> {
     }, 300);
   }
 
-  //等待图片获取器执行成功后的上报，如果该图片获取器上报自身所在的索引和执行队列的currIndex一致，则改变大图
+  /**
+   * Wait for the image fetcher to report success
+   * If the reported index matches the `currIndex` in the execution queue, update the displayed large image.
+   */
   finishedReport(index: number, success: boolean, imf: IMGFetcher) {
-    // change chapter will clear this
+    // Changing chapter will clear this
     if (this.length === 0) return;
     // evLog("ifq finished report, index: ", index, ", success: ", success, ", current index: ", this.currIndex);
     if (!success || imf.stage !== FetchState.DONE) return;
-    // if (!this.finishedIndex.has(index)) { }
     this.finishedIndex.add(index);
     if (this.dataSize < 1000000000) { // 1GB
       this.dataSize += imf.data?.byteLength || 0;
@@ -110,21 +127,20 @@ export class IMGFetcherQueue extends Array<IMGFetcher> {
     EBUS.emit("ifq-on-finished-report", index, this);
   }
 
-  //如果开始的索引小于0,则修正索引为0,如果开始的索引超过队列的长度,则修正索引为队列的最后一位
   fixIndex(start: number) {
     return start < 0 ? 0 : start > this.length - 1 ? this.length - 1 : start;
   }
 
   /**
-   * 将方向前|后 的未加载大图数据的图片获取器放入待加载队列中
-   * 从当前索引开始，向后或向前进行遍历，
-   * 会跳过已经加载完毕的图片获取器，
-   * 会添加正在获取大图数据或未获取大图数据的图片获取器到待加载队列中
-   * @param oriented 方向 前后 
-   * @returns 是否添加成功
+   * Adds unfinished `IMGFetcher` instances in the given direction (prev | next) to the execution queue.  
+   * Starting from the this.currIndex, it traverses forward or backward:  
+   * - Skips already completed `IMGFetcher` instances  
+   * - Adds `IMGFetcher` instances that are fetching or have not yet fetched large image data
+   * @param oriented Direction (forward | backward)
+   * @returns Whether items were successfully added
    */
-  pushInExecutableQueue(oriented: Oriented) {
-    //把要执行获取器先放置到队列中，延迟执行
+  pushInExecutableQueue(oriented: Oriented): boolean {
+    // Put fetchers into the queue for delayed execution
     this.executableQueue = [];
     for (let count = 0, index = this.currIndex; this.checkOutbounds(index, oriented, count); oriented === "next" ? ++index : --index) {
       if (this[index].stage === FetchState.DONE) continue;
@@ -134,7 +150,10 @@ export class IMGFetcherQueue extends Array<IMGFetcher> {
     return this.executableQueue.length > 0;
   }
 
-  // 如果索引已到达边界且添加数量在配置最大同时获取数量的范围内
+  /**
+   * Checks if the index has reached bounds,  
+   * while the number of added items is still within the configured simultaneous fetch limit.
+   */
   checkOutbounds(index: number, oriented: Oriented, count: number) {
     let ret = false;
     if (oriented === "next") ret = index < this.length;
