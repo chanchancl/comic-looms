@@ -34,8 +34,11 @@ class BatotoMatcher extends BaseMatcher<Document> {
   }
 
   async fetchChapters(): Promise<Chapter[]> {
-    let elements = Array.from(document.querySelectorAll<HTMLDivElement>("div[name=chapter-list] .scrollable-panel astro-slot > div"));
+    let elements = Array.from(document.querySelectorAll<HTMLDivElement>("div[name=chapter-list] .scrollable-panel .flex-col-reverse astro-slot > div"));
     elements = elements.reverse();
+    if (elements.length === 0) {
+      elements = Array.from(document.querySelectorAll<HTMLDivElement>("div[name=chapter-list] .scrollable-panel .flex-col astro-slot > div"));
+    }
     return elements.map((elem, i) => {
       const a = elem.querySelector<HTMLAnchorElement>("div:first-child > a");
       if (!a) throw new Error("cannot find chapter element");
