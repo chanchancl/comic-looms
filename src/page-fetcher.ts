@@ -31,6 +31,18 @@ export class Chapter {
   }
 }
 
+/** Page Fetcher
+ * PageFetcher is the core component of this program, responsible for calling various methods of `Matcher` to ultimately obtain the basic information of each image.<br>
+ * Its core method is `this.init()`.<br>
+ * This process is divided into several steps:<br>
+ *   Step 1: Call `matcher.fetchChapters()` to retrieve chapter information. Some galleries do not have the concept of chapters, so a single `Chapter` will be obtained.<br>
+ *   Step 2: Regardless of whether the site has the concept of chapters, one or more `Chapter` objects will be obtained.<br>
+ *           Then, `matcher.fetchPagesSource(chapter)` is called sequentially to obtain an iterator `Chapter.sourceIter` for page data. This step does not actually request data for each page.<br>
+ *           After the user selects a chapter or if there is only one chapter, the second core method `this.changeToChapter(chapterIndex)` is triggered.<br>
+ *   Step 3: Next, `this.appendPages` primarily manipulates `chapter.sourceIter`, lazily requesting `chapter.sourceIter.next()` to obtain page data of type `any`.<br>
+ *   Step 4: Call `matcher.parseImgNodes()` to parse the page data obtained in the previous step, ultimately retrieving the basic information for each image and creating `ImageFetcher` objects.<br>
+ *           The obtained `ImageFetcher` objects are handed over to `IMGFetcherQueue` for download control.
+ */
 export class PageFetcher {
   chapters: Chapter[] = [];
   chapterIndex: number = 0;
@@ -49,7 +61,7 @@ export class PageFetcher {
     this.filter = filter;
     this.filter.onChange = () => this.changeToChapter(this.chapterIndex);
     const debouncer = new Debouncer();
-    // triggered then ifq finished
+    // triggered when ifq finished
     EBUS.subscribe("ifq-on-finished-report", (index) => debouncer.addEvent("APPEND-NEXT-PAGES", () => this.appendPages(index), 5));
     EBUS.subscribe("imf-on-finished", (index, success, imf) => {
       if (index === 0 && success) {
@@ -109,6 +121,7 @@ export class PageFetcher {
 
   async init() {
     this.beforeInit?.();
+    // Image Actions, It is an experimental feature.
     try {
       if (ADAPTER.conf.imgNodeActions.length > 0) {
         const AsyncFunction = async function() { }.constructor;
@@ -136,6 +149,7 @@ export class PageFetcher {
       c.onclick = (index) => this.changeToChapter(index);
     });
     EBUS.emit("pf-update-chapters", this.chapters);
+
     if (this.chapters.length === 1) {
       this.changeToChapter(0);
     }
@@ -145,11 +159,14 @@ export class PageFetcher {
     this.chapterIndex = index;
     EBUS.emit("pf-change-chapter", index, this.chapters[index]);
     const chapter = this.chapters[index];
+
+    // Filter, It is an experimental feature
     chapter.filteredQueue = [...this.filter.filterNodes(chapter.queue, true)];
     chapter.filteredQueue.forEach((node, i) => node.index = i);
     if (chapter.filteredQueue.length > 0) {
       this.appendToView(chapter.filteredQueue.length, chapter.filteredQueue, index, this.chapters[index].done);
     }
+
     if (!this.queue.downloading?.()) {
       this.beforeInit?.();
       this.restoreChapter(index).then(this.afterInit).catch(this.onFailed);
@@ -158,7 +175,7 @@ export class PageFetcher {
 
   /**
    * Switch to the specified chapter, and restore the previously loaded elements or load new ones
-  */
+   */
   async restoreChapter(index: number) {
     this.chapterIndex = index;
     const chapter = this.chapters[this.chapterIndex];
@@ -177,7 +194,9 @@ export class PageFetcher {
     }
   }
 
-  // append next page until the queue length is 60 more than finished
+  /**
+   * Append next page until the queue length is 60 more than finished
+   */
   private async appendPages(appendedCount: number) {
     while (true) {
       if (appendedCount + 60 < this.queue.length) break;
@@ -192,7 +211,9 @@ export class PageFetcher {
       const chapter = this.chapters[this.chapterIndex];
       if (force) chapter.done = false; // FIXME: reset the iter
       if (chapter.done || this.abortb) return false;
+      // fetch next page data
       const next = await chapter.sourceIter!.next();
+      // If chapter.sourceIter is done, call this.appendToView() to trigger the update of some view elements
       if (next.done) {
         chapter.done = true;
         this.appendToView(this.queue.length, [], this.chapterIndex, true);
@@ -202,6 +223,7 @@ export class PageFetcher {
           chapter.done = true;
           throw next.value.error;
         }
+        // Parse the next page data to IMGFetcher[], then append to view and IMGFetcherQueue
         return await this.appendImages(next.value.value);
       }
     } catch (error) {
@@ -213,6 +235,9 @@ export class PageFetcher {
     }
   }
 
+  /**
+   * Parse the data information of each page, extract image information, create `IMGFetcher[]`, and append to `IMGFetcherQueue` and `BigImageFrameManager`
+   */
   async appendImages(pageSource: any): Promise<boolean> {
     try {
       const nodes = await this.obtainImageNodeList(pageSource);
@@ -254,7 +279,6 @@ export class PageFetcher {
     }
   }
 
-  //从文档的字符串中创建缩略图元素列表
   async obtainImageNodeList(pageSource: any): Promise<ImageNode[]> {
     let tryTimes = 0;
     let err: any;
@@ -269,11 +293,6 @@ export class PageFetcher {
     }
     evLog("error", "warn: parse image nodes failed: reached max try times!");
     throw err;
-  }
-
-  //通过地址请求该页的文档
-  async fetchDocument(pageURL: string): Promise<string> {
-    return await window.fetch(pageURL).then((response) => response.text());
   }
 
   onFailed(reason: any) {
