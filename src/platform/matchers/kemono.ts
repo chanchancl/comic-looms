@@ -42,7 +42,9 @@ abstract class KemonoListAbstract implements KemonoList {
     page = isNaN(page) ? 0 : page;
     const query = url.searchParams.get("q");
     while (true) {
-      const ret = await window.fetch(this.getURL(page, query)).then(res => res.json()).catch(Error);
+      const ret = await window.fetch(this.getURL(page, query), {
+        headers: { "Accept": "text/css" }
+      }).then(res => res.json()).catch(Error);
       if (ret instanceof Error) {
         yield Result.err(ret);
         continue;
