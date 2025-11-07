@@ -173,6 +173,10 @@ export class UgoiraPlayer {
     if (!this.paused) return;
     this.paused = false;
     this.frame0WHPromise.then(() => {
+      if (this.animationFrameID) {
+        window.cancelAnimationFrame(this.animationFrameID);
+        this.animationFrameID = undefined;
+      }
       const animate = this.createAnimate();
       this.animationFrameID = window.requestAnimationFrame(animate);
     });
@@ -182,6 +186,7 @@ export class UgoiraPlayer {
     this.paused = true
     if (this.animationFrameID) {
       window.cancelAnimationFrame(this.animationFrameID);
+      this.animationFrameID = undefined;
     }
   }
 
