@@ -82,7 +82,7 @@ export function initEvents(HTML: Elements, BIFM: BigImageFrameManager, IFQ: IMGF
       };
       let mod = 1;
       if (key === "preventScrollPageTime" || key === "rowHeight" || key === "scrollingDelta") {
-        mod = ADAPTER.conf[key] === 1 ? 9 : 10;
+        mod = ADAPTER.conf[key] < 1 ? 1 : ADAPTER.conf[key] === 1 ? 9 : 10;
       };
       if (data === "add") {
         value = Math.min(ADAPTER.conf[key] + mod, range[key][1]);
