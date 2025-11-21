@@ -262,7 +262,7 @@ export class IMGFetcher {
           onerror: function(response) {
             imgFetcher.abortSignal = undefined;
             // "Refused to connect to "https://ba.hitomi.la/avif/123/456/789.avif": URL is not permitted"
-            if (response.status === 0 && response.error?.includes("URL is not permitted")) {
+            if (response.status === 0) {
               const domain = response.error.match(/(https?:\/\/.*?)\/.*/)?.[1] ?? "";
               reject(new Error(i18n.failFetchReason1.get().replace("{{domain}}", domain)));
             } else {
