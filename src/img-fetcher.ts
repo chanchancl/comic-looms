@@ -276,7 +276,7 @@ export class IMGFetcher {
           onloadstart: function() {
             imgFetcher.setDownloadState(imgFetcher.downloadState);
           }
-        }, this.matcher.headers());
+        }, this.matcher.headers(this.node));
         timeout();
       } catch (error) {
         reject(error);

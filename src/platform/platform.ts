@@ -81,7 +81,7 @@ export interface Matcher<P> {
    *  However, some sites encrypt, scramble, or segment image data. In such cases, this step should handle decryption or restoration.
    */
   processData(data: Uint8Array<ArrayBuffer>, contentType: string, node: ImageNode): Promise<[Uint8Array<ArrayBuffer> | SubData, string]>;
-  headers(): Record<string, string>;
+  headers(node: ImageNode): Record<string, string>;
   appendNewChapters(url: string, old: Chapter[]): Promise<Chapter[]>;
 }
 
@@ -128,7 +128,7 @@ export abstract class BaseMatcher<P> implements Matcher<P> {
     return [data, contentType];
   }
 
-  headers(): Record<string, string> {
+  headers(_node: ImageNode): Record<string, string> {
     return {};
   }
 
