@@ -1,17 +1,16 @@
 import { IMGFetcher } from "../../img-fetcher";
 import ImageNode from "../../img-node";
 import { Chapter } from "../../page-fetcher";
+import { evLog } from "../../utils/ev-log";
 import { ADAPTER } from "../adapt";
 import { BaseMatcher, OriginMeta, Result } from "../platform";
 
 class MangaParkMatcher extends BaseMatcher<string> {
 
   preferServer: { server: string, done: number }[] = [];
-  // serverPrefix: string[] = ["s01", "s03", "s04", "s00", "s05", "s06", "s07", "s08", "s09", "s10", "s02"];
-  // servers: string[] = [];
-  //
+
   constructor() {
-    super()
+    super();
     const ls = window.localStorage.getItem("prefer-services");
     this.preferServer = ls ? JSON.parse(ls) : [];
   }
@@ -54,11 +53,7 @@ class MangaParkMatcher extends BaseMatcher<string> {
     const url = new URL(imf.node.originSrc!);
     if (ret === null || ret instanceof Error || ret?.type.startsWith("text")) { // server down
       this.updatePerferServer(url.host, true);
-      this.preferServer = this.preferServer.sort((a, b) => {
-        if (a.done === b.done) return Math.random() - 0.5;
-        return b.done - a.done;
-      });
-      console.log("server down, try other servers", this.preferServer);
+      evLog("info", "server down, try other servers", this.preferServer);
       for (const server of this.preferServer) {
         url.host = server.server;
         imf.node.originSrc = url.href;
@@ -78,12 +73,22 @@ class MangaParkMatcher extends BaseMatcher<string> {
 
   updatePerferServer(server: string, failed?: boolean) {
     const found = this.preferServer.findIndex(v => v.server === server);
+    let changed = false;
     if (found > -1) {
       this.preferServer[found].done = Math.min(20, (this.preferServer[found].done + (failed ? -1 : 1)));
+      changed = true;
     } else if (!failed) {
       this.preferServer.push({ server: server, done: 1 });
+      changed = true;
     }
-    window.localStorage.setItem("prefer-services", JSON.stringify(this.preferServer));
+    if (changed) {
+      this.preferServer = this.preferServer.sort((a, b) => {
+        if (a.done === b.done) return Math.random() - 0.5;
+        return b.done - a.done;
+      });
+      this.preferServer = this.preferServer.slice(0, 30);
+      window.localStorage.setItem("prefer-services", JSON.stringify(this.preferServer));
+    }
   }
 
 }
